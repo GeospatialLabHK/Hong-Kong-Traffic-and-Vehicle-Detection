@@ -1,0 +1,1315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hong Kong Traffic and Vehicle Detection</title>
+<script src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js" crossorigin></script>
+<script src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://cesium.com/downloads/cesiumjs/releases/1.123/Build/Cesium/Cesium.js"></script>
+<link rel="stylesheet" href="https://cesium.com/downloads/cesiumjs/releases/1.123/Build/Cesium/Widgets/widgets.css" />
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.19.0/dist/ort.min.js"></script>
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#0f172a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#e2e8f0}
+#root{width:100%;height:100%}
+.app{display:flex;flex-direction:column;height:100%}
+.header{background:linear-gradient(90deg,#0f172a,#1e293b);border-bottom:1px solid #334155;padding:10px 16px;display:flex;align-items:center;gap:12px;flex-shrink:0}
+.header-logo{width:34px;height:34px;border-radius:8px;background:linear-gradient(135deg,#3b82f6,#8b5cf6);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
+.header-title{font-size:16px;font-weight:700}
+.header-sub{font-size:11px;color:#94a3b8}
+.home-btn{background:#2563eb;color:#fff;border:none;padding:7px 14px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:all .15s;margin-left:auto}
+.home-btn:hover{background:#1d4ed8;transform:translateY(-1px)}
+.home-btn:active{transform:translateY(0)}
+.home-btn svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.model-badge{margin-left:auto;padding:4px 10px;border-radius:12px;font-size:11px;display:flex;align-items:center;gap:5px;flex-shrink:0}
+.model-loading{background:#1e3a5f;color:#60a5fa}
+.model-ready{background:#064e3b;color:#34d399}
+.model-error{background:#7f1d1d;color:#fca5a5}
+.dot{width:7px;height:7px;border-radius:50%;background:currentColor}
+.pulse{animation:p-d 1.2s infinite}
+@keyframes p-d{0%,100%{opacity:1}50%{opacity:.3}}
+.main{flex:1;display:flex;min-height:0;overflow:hidden}
+@media(max-width:899px){.main{flex-direction:column}}
+.map-wrap{width:60%;display:flex;flex-direction:column;background:#1e293b;position:relative}
+@media(max-width:899px){.map-wrap{width:100%;height:45%;min-height:200px;position:relative}}
+.map-head{padding:8px 14px;border-bottom:1px solid #334155;display:flex;align-items:center;gap:10px;flex-shrink:0}
+.map-title{font-size:13px;font-weight:600;color:#cbd5e1}
+.legend{display:flex;gap:8px;font-size:10px;color:#94a3b8;margin-left:auto}
+.leg-i{display:flex;align-items:center;gap:3px}
+.leg-dot{width:7px;height:7px;border-radius:50%;display:inline-block}
+#cesiumContainer{flex:1;min-height:0}
+.cesium-viewer{background:#1e293b!important}
+.cesium-viewer-bottom{display:none!important}
+.cesium-viewer .cesium-widget-credits{display:none!important}
+
+/* Floating traffic legend overlay */
+.traffic-legend{position:absolute;bottom:14px;left:14px;z-index:5;background:rgba(15,23,42,.92);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid #334155;border-radius:10px;padding:10px 12px;box-shadow:0 4px 16px rgba(0,0,0,.4),0 0 0 1px rgba(255,255,255,.04);min-width:160px;font-size:11px;color:#cbd5e1;pointer-events:auto}
+.traffic-legend-title{font-size:10px;text-transform:uppercase;letter-spacing:.8px;color:#94a3b8;font-weight:700;margin-bottom:8px;display:flex;align-items:center;gap:5px}
+.traffic-legend-title-dot{width:6px;height:6px;border-radius:50%;background:#f59e0b}
+.traffic-legend-row{display:flex;align-items:center;gap:7px;padding:3px 0}
+.traffic-legend-swatch{width:10px;height:10px;border-radius:50%;flex-shrink:0;box-shadow:inset 0 0 0 1px rgba(255,255,255,.12),0 0 0 1px rgba(15,23,42,.6)}
+.traffic-legend-label{flex:1;color:#e2e8f0;font-weight:500;font-size:11px}
+.traffic-legend-range{color:#94a3b8;font-size:10px;font-variant-numeric:tabular-nums}
+.traffic-legend-divider{height:1px;background:#334155;margin:6px 0}
+
+/* Popup overlay on 3D map */
+.cam-popup{position:absolute;z-index:10;background:#0f172a;border:1px solid #334155;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.5),0 0 0 1px rgba(255,255,255,.05);width:260px;max-height:340px;pointer-events:auto;font-size:12px;overflow:hidden}
+.cam-popup-head{padding:8px 10px;background:linear-gradient(90deg,#1e293b,#0f172a);border-bottom:1px solid #334155;display:flex;align-items:center;gap:8px}
+.cam-popup-title{font-size:12px;font-weight:600;color:#f1f5f9;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.cam-popup-close{background:transparent;border:none;color:#94a3b8;cursor:pointer;font-size:16px;line-height:1;padding:0 4px}
+.cam-popup-close:hover{color:#f1f5f9}
+.cam-popup-img{width:100%;aspect-ratio:16/10;background:#1e293b;object-fit:cover}
+.cam-popup-body{padding:10px}
+.cam-popup-loc{font-size:10px;color:#94a3b8;margin-bottom:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cam-popup-count{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.cam-popup-count-num{font-size:22px;font-weight:800;letter-spacing:-.5px}
+.cam-popup-count-label{font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px}
+.cam-popup-chips{display:flex;flex-wrap:wrap;gap:4px}
+.cam-popup-chip{font-size:10px;background:#1e293b;border:1px solid #334155;padding:2px 7px;border-radius:10px;color:#cbd5e1;display:inline-flex;align-items:center;gap:4px}
+.cam-popup-chip .d{width:6px;height:6px;border-radius:50%}
+.cam-popup-chip .c{font-weight:700;color:#f1f5f9}
+.cam-popup-loader{padding:20px;text-align:center;color:#94a3b8;font-size:11px}
+.side{flex:1;display:flex;flex-direction:column;background:#1e293b;min-height:0;min-width:0;overflow:hidden}
+@media(max-width:899px){.side{flex:1;min-height:0}}
+.stats-bar{padding:14px;background:linear-gradient(135deg,#1e293b 0%,#0f172a 100%);border-bottom:1px solid #334155;flex-shrink:0;display:flex;gap:16px;align-items:center;justify-content:space-between}
+.stats-item{text-align:center;flex:1}
+.stats-num{font-size:20px;font-weight:700;color:#f1f5f9;line-height:1}
+.stats-label{font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:.6px;margin-top:4px}
+.stats-divider{width:1px;background:#334155;align-self:stretch;margin:4px 0}
+.snapshot-top{padding:14px 16px;border-bottom:1px solid #334155;background:linear-gradient(135deg,#0f172a 0%,#1e293b 100%);flex-shrink:0}
+.snapshot-hd{margin-bottom:10px}
+.snapshot-title{font-size:14px;font-weight:600;color:#f1f5f9;display:flex;align-items:center;gap:8px;margin-bottom:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.snapshot-sub{font-size:11px;color:#94a3b8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cv-top{position:relative;border-radius:8px;overflow:hidden;background:#0f172a;aspect-ratio:16/10;border:1px solid #334155}
+.cv-top canvas{position:absolute;inset:0;width:100%;height:100%}
+.search{padding:10px 14px;border-bottom:1px solid #1e293b;flex-shrink:0}
+.s-inp{width:100%;background:#1e293b;border:1px solid #334155;color:#e2e8f0;font-size:13px;padding:8px 12px;border-radius:7px;outline:none}
+.s-inp:focus{border-color:#3b82f6}
+.s-inp::placeholder{color:#64748b}
+.fbtns{display:flex;gap:5px;margin-top:8px;flex-wrap:wrap}
+.fbtn{font-size:10px;padding:3px 8px;border-radius:5px;border:1px solid #334155;background:transparent;color:#94a3b8;cursor:pointer}
+.fbtn.on{background:#3b82f6;color:#fff;border-color:#3b82f6}
+.cnt{font-size:10px;color:#64748b;margin-top:5px}
+.clist{flex:1;min-height:0;overflow-y:auto;background:#0f172a}
+.clist::-webkit-scrollbar{width:5px}
+.clist::-webkit-scrollbar-thumb{background:#334155;border-radius:3px}
+.ci{padding:9px 14px;border-bottom:1px solid #1e293b;cursor:pointer;display:flex;align-items:center;gap:8px;transition:background .12s}
+.ci:hover{background:#1e293b}
+.ci.sel{background:#1e3a5f;border-left:3px solid #3b82f6;padding-left:11px}
+.cd{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.cinf{flex:1;min-width:0}
+.cn{font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cl{font-size:10px;color:#64748b;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.det{background:#1e293b;border-top:1px solid #334155;padding:14px;overflow-y:auto;flex:1;min-height:0}
+.det::-webkit-scrollbar{width:5px}
+.det::-webkit-scrollbar-thumb{background:#334155;border-radius:3px}
+.search-bottom{margin-top:18px;padding-top:14px;border-top:1px solid #334155}
+.clist-mini{flex-shrink:0;max-height:180px;overflow-y:auto;background:#0f172a;border-radius:6px;margin-top:8px}
+.clist-mini::-webkit-scrollbar{width:4px}
+.clist-mini::-webkit-scrollbar-thumb{background:#334155;border-radius:2px}
+@media(max-width:899px){
+  .side.hascam .search,.side.hascam .clist,.side.hascam .empty{display:none}
+  .side.hascam .det{flex:1;max-height:none;overflow-y:auto}
+}
+.bkbtn{display:none;background:#334155;color:#cbd5e1;border:none;padding:5px 10px;border-radius:5px;font-size:11px;cursor:pointer;margin-bottom:8px}
+@media(max-width:899px){.bkbtn{display:inline-block}}
+.sec{font-size:10px;text-transform:uppercase;letter-spacing:.7px;color:#64748b;font-weight:600;margin-bottom:8px;margin-top:12px}
+.sec:first-child{margin-top:0}
+.chd{margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid #334155}
+.chdn{font-size:14px;font-weight:600;color:#f1f5f9;display:flex;align-items:center;gap:7px;margin-bottom:3px}
+.chdl{font-size:11px;color:#94a3b8}
+.cv{position:relative;border-radius:8px;overflow:hidden;background:#0f172a;margin-bottom:12px;aspect-ratio:16/10;border:1px solid #334155}
+.cv canvas{position:absolute;inset:0;width:100%;height:100%}
+.cvo{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(15,23,42,.85);color:#cbd5e1;font-size:12px;z-index:2;gap:8px}
+.sp{width:24px;height:24px;border:3px solid #334155;border-top-color:#3b82f6;border-radius:50%;animation:sp .7s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.tcard{background:linear-gradient(135deg,#1e3a5f,#1e293b);border:1px solid #334155;border-radius:8px;padding:12px 14px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between}
+.tlbl{font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.6px;font-weight:600}
+.tnum{font-size:32px;font-weight:800;color:#f1f5f9;letter-spacing:-1px;line-height:1}
+.tico{width:40px;height:40px;border-radius:8px;background:linear-gradient(135deg,#22c55e,#16a34a);display:flex;align-items:center;justify-content:center;font-size:20px;box-shadow:0 3px 10px rgba(34,197,94,.3)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.chip{display:flex;align-items:center;gap:5px;background:#0f172a;border:1px solid #334155;padding:4px 10px;border-radius:16px;font-size:11px}
+.cdot{width:7px;height:7px;border-radius:50%}
+.clab{color:#cbd5e1;font-weight:500}
+.cnum{color:#f1f5f9;font-weight:700;background:#334155;padding:1px 6px;border-radius:8px;font-size:10px}
+.sbar{display:flex;height:6px;border-radius:3px;overflow:hidden;background:#0f172a;margin-bottom:12px}
+.sbar div{transition:width .3s}
+.ctrl{background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:10px}
+.btn{font-size:11px;padding:6px 12px;border-radius:6px;border:none;cursor:pointer;display:inline-flex;align-items:center;gap:5px;font-weight:600;transition:all .12s}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.bp{background:#3b82f6;color:#fff}
+.bp:hover:not(:disabled){background:#2563eb}
+.bg{background:#10b981;color:#fff}
+.bg:hover{background:#059669}
+.bgr{background:#334155;color:#cbd5e1}
+.bgr:hover{background:#475569}
+select.iv{font-size:11px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;padding:6px 8px;border-radius:6px;outline:none;font-weight:600}
+.st{display:flex;align-items:center;gap:6px;font-size:11px;padding:7px 10px;border-radius:6px;background:#0f172a}
+.stdot{width:7px;height:7px;border-radius:50%;background:currentColor;flex-shrink:0}
+.sttxt{color:#cbd5e1;font-weight:500;flex:1}
+.sttm{color:#64748b;font-size:10px}
+.sidle{color:#10b981}
+.swrk{color:#f59e0b}
+.serr{color:#ef4444}
+.empty{padding:30px 16px;text-align:center;flex-shrink:0}
+.eico{width:64px;height:64px;border-radius:16px;background:linear-gradient(135deg,#1e293b,#0f172a);border:1px solid #334155;display:flex;align-items:center;justify-content:center;margin:0 auto 12px;font-size:28px;color:#64748b}
+.etit{font-size:14px;font-weight:600;color:#cbd5e1;margin-bottom:4px}
+.esub{font-size:11px;color:#64748b;line-height:1.5;max-width:280px;margin:0 auto}
+.steps{margin-top:14px;text-align:left;max-width:280px;margin-left:auto;margin-right:auto}
+.steps div{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:11px;color:#94a3b8}
+.sn{width:18px;height:18px;border-radius:50%;background:#1e293b;color:#94a3b8;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;border:1px solid #334155}
+.warn{padding:8px 10px;background:#7f1d1d;border-radius:6px;margin-bottom:10px;font-size:11px;color:#fca5a5}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+(function(){
+var useState=React.useState,useEffect=React.useEffect,useRef=React.useRef,useMemo=React.useMemo;
+var h=React.createElement;
+
+var MODEL_URL = './assets/yolov8n.onnx';
+var INPUT_SIZE = 640;
+var CONF_THRESHOLD = 0.25;
+var IOU_THRESHOLD = 0.45;
+var NUM_CLASSES = 80;
+
+// 0-based MS COCO class IDs for vehicle-related classes (only keep the global argmax if it's one of these)
+var VEH_LABELS = {0:'Person', 1:'Bicycle', 2:'Car', 3:'Motorcycle', 5:'Bus', 7:'Truck'};
+var VK_SET = {0:true, 1:true, 2:true, 3:true, 5:true, 7:true};
+var VC = {0:'#a78bfa', 1:'#06b6d4', 2:'#22c55e', 3:'#eab308', 5:'#f97316', 7:'#ef4444'};
+
+var _session = null, _loading = null;
+
+function loadMdl() {
+  if (_session) return Promise.resolve(_session);
+  if (_loading) return _loading;
+
+  _loading = ort.InferenceSession.create(MODEL_URL, {
+    executionProviders: ['wasm']
+  }).then(function(sess) {
+    _session = sess;
+    _loading = null;
+    console.log('YOLOv8n ONNX loaded. Inputs:', sess.inputNames, 'Outputs:', sess.outputNames);
+    return sess;
+  }).catch(function(err) {
+    _loading = null;
+    console.error('Failed to load YOLOv8n:', err);
+    throw new Error('Model load failed: ' + err.message);
+  });
+
+  return _loading;
+}
+
+// Letterbox image to square 640x640 with gray (114,114,114) padding, normalize to [0,1] CHW
+function preprocess(img) {
+  var origW = img.naturalWidth || img.width;
+  var origH = img.naturalHeight || img.height;
+
+  var scale = Math.min(INPUT_SIZE / origW, INPUT_SIZE / origH);
+  var newW = Math.round(origW * scale);
+  var newH = Math.round(origH * scale);
+  var padX = Math.floor((INPUT_SIZE - newW) / 2);
+  var padY = Math.floor((INPUT_SIZE - newH) / 2);
+
+  var canvas = document.createElement('canvas');
+  canvas.width = INPUT_SIZE;
+  canvas.height = INPUT_SIZE;
+  var ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#727272';
+  ctx.fillRect(0, 0, INPUT_SIZE, INPUT_SIZE);
+  ctx.drawImage(img, padX, padY, newW, newH);
+
+  var imageData = ctx.getImageData(0, 0, INPUT_SIZE, INPUT_SIZE);
+  var data = imageData.data;
+
+  var tensor = new Float32Array(3 * INPUT_SIZE * INPUT_SIZE);
+  var plane = INPUT_SIZE * INPUT_SIZE;
+  for (var y = 0; y < INPUT_SIZE; y++) {
+    for (var x = 0; x < INPUT_SIZE; x++) {
+      var idx = (y * INPUT_SIZE + x) * 4;
+      var dst = y * INPUT_SIZE + x;
+      tensor[dst] = data[idx] / 255.0;
+      tensor[plane + dst] = data[idx + 1] / 255.0;
+      tensor[2 * plane + dst] = data[idx + 2] / 255.0;
+    }
+  }
+
+  return {
+    tensor: new ort.Tensor('float32', tensor, [1, 3, INPUT_SIZE, INPUT_SIZE]),
+    scale: scale,
+    padX: padX,
+    padY: padY,
+    origW: origW,
+    origH: origH
+  };
+}
+
+function sigmoid(x) { return 1 / (1 + Math.exp(-x)); }
+
+// Classic greedy NMS per-class, IoU threshold
+function nms(boxes, iouThresh) {
+  // Group by class
+  var byClass = {};
+  boxes.forEach(function(b, i) {
+    if (!byClass[b.cls]) byClass[b.cls] = [];
+    byClass[b.cls].push(b);
+  });
+  var kept = [];
+  Object.keys(byClass).forEach(function(cls) {
+    var arr = byClass[cls].slice().sort(function(a,b){return b.conf-a.conf;});
+    var out = [];
+    while (arr.length) {
+      var best = arr.shift();
+      out.push(best);
+      arr = arr.filter(function(other) {
+        // compute IoU
+        var x1 = Math.max(best.x, other.x);
+        var y1 = Math.max(best.y, other.y);
+        var x2 = Math.min(best.x + best.w, other.x + other.w);
+        var y2 = Math.min(best.y + best.h, other.y + other.h);
+        var iw = Math.max(0, x2 - x1), ih = Math.max(0, y2 - y1);
+        var inter = iw * ih;
+        var uni = best.w * best.h + other.w * other.h - inter;
+        var iou = uni > 0 ? inter / uni : 0;
+        return iou < iouThresh;
+      });
+    }
+    out.forEach(function(b){kept.push(b);});
+  });
+  return kept;
+}
+
+function doDetect(img) {
+  var prep = preprocess(img);
+  var feeds = {};
+  feeds[_session.inputNames[0]] = prep.tensor;
+
+  return _session.run(feeds).then(function(outputs) {
+    var out = outputs[_session.outputNames[0]];
+    var data = out.data;   // Float32Array, length 84 * 8400
+    var numBoxes = out.dims[2]; // 8400
+
+    // Output layout: data[row * numBoxes + col], rows 0..3 = cx,cy,w,h, rows 4..83 = 80 class scores (already sigmoid'd)
+    var candidates = [];
+    for (var i = 0; i < numBoxes; i++) {
+      // Find GLOBAL argmax across all 80 classes (scores already in [0,1])
+      var bestC = 0, bestLogit = -Infinity;
+      for (var c = 0; c < NUM_CLASSES; c++) {
+        var logit = data[(4 + c) * numBoxes + i];
+        if (logit > bestLogit) { bestLogit = logit; bestC = c; }
+      }
+      // Only keep if the model's top prediction is a vehicle class
+      if (!VK_SET[bestC]) continue;
+
+      // Values are already sigmoid'd (probabilities in [0,1]), not raw logits
+      var score = bestLogit;
+      if (score < CONF_THRESHOLD) continue;
+
+      var cx = data[0 * numBoxes + i];
+      var cy = data[1 * numBoxes + i];
+      var w  = data[2 * numBoxes + i];
+      var h  = data[3 * numBoxes + i];
+
+      // Letterbox-corrected original image coords
+      var x0 = (cx - w / 2 - prep.padX) / prep.scale;
+      var y0 = (cy - h / 2 - prep.padY) / prep.scale;
+      var bw = w / prep.scale;
+      var bh = h / prep.scale;
+
+      // Clamp inside original image
+      if (x0 < 0) { bw += x0; x0 = 0; }
+      if (y0 < 0) { bh += y0; y0 = 0; }
+      if (x0 + bw > prep.origW) bw = prep.origW - x0;
+      if (y0 + bh > prep.origH) bh = prep.origH - y0;
+      if (bw <= 1 || bh <= 1) continue;
+
+      candidates.push({
+        x: x0, y: y0, w: bw, h: bh,
+        conf: score, cls: bestC
+      });
+    }
+
+    var detections = nms(candidates, IOU_THRESHOLD);
+
+    var counts = {};
+    detections.forEach(function(d) {
+      var label = VEH_LABELS[d.cls];
+      counts[label] = (counts[label] || 0) + 1;
+    });
+
+    return {
+      dets: detections.map(function(d) {
+        return {
+          x: d.x,
+          y: d.y,
+          w: d.w,
+          h: d.h,
+          label: VEH_LABELS[d.cls],
+          conf: d.conf,
+          cls: d.cls
+        };
+      }),
+      counts: counts,
+      total: detections.length
+    };
+  });
+}
+
+function drawBx(ctx,dets,cw,ch,ow,oh){
+  var sx=cw/ow,sy=ch/oh;
+  dets.forEach(function(d){
+    var x=d.x*sx,y=d.y*sy,w=d.w*sx,ht=d.h*sy;
+    var col=VC[d.cls]||'#22c55e';
+    ctx.strokeStyle=col;ctx.lineWidth=Math.max(2,Math.round(cw/300));
+    ctx.strokeRect(x,y,w,ht);
+    var fs=Math.max(10,Math.round(cw/50));
+    ctx.font='bold '+fs+'px Arial';
+    var t=d.label+' '+Math.round(d.conf*100)+'%';
+    var tw=ctx.measureText(t).width,bh=fs+5;
+    ctx.fillStyle=col;ctx.fillRect(x,Math.max(0,y-bh),tw+6,bh);
+    ctx.fillStyle='#fff';ctx.textBaseline='middle';
+    ctx.fillText(t,x+3,Math.max(0,y-bh)+bh/2);
+  });
+}
+
+var PX=['https://corsproxy.io/?','https://api.allorigins.win/raw?url='];
+
+// Fast path: load image directly via <img> tag with crossOrigin (single GET, no blob)
+function tryImgDirect(src, timeoutMs){
+  return new Promise(function(ok, no){
+    var img = new Image();
+    img.crossOrigin = 'anonymous';
+    var done = false;
+    var timer = setTimeout(function(){
+      if(!done){ done=true; img.src=''; no(new Error('timeout')); }
+    }, timeoutMs);
+    img.onload = function(){
+      if(done) return;
+      done = true;
+      clearTimeout(timer);
+      ok(img);
+    };
+    img.onerror = function(){
+      if(done) return;
+      done = true;
+      clearTimeout(timer);
+      no(new Error('img error'));
+    };
+    img.src = src;
+  });
+}
+
+// Slow path: fetch bytes via CORS proxy -> blob -> img (for cases where proxy doesn't pass CORS)
+function tryImgViaFetch(src, timeoutMs){
+  return new Promise(function(ok, no){
+    var done = false;
+    var timer = setTimeout(function(){
+      if(!done){ done=true; no(new Error('timeout')); }
+    }, timeoutMs);
+    var ctrl = new AbortController();
+    fetch(src, {mode:'cors', cache:'force-cache', signal:ctrl.signal})
+      .then(function(r){
+        if(!r.ok) throw new Error('HTTP '+r.status);
+        return r.arrayBuffer();
+      })
+      .then(function(buf){
+        if(done) return;
+        done = true;
+        clearTimeout(timer);
+        try{ ctrl.abort(); }catch(e){}
+        var blob = new Blob([buf], {type:'image/jpeg'});
+        var url = URL.createObjectURL(blob);
+        var img = new Image();
+        img.onload = function(){ ok(img); };
+        img.onerror = function(){ no(new Error('blob-img error')); };
+        img.src = url;
+      })
+      .catch(function(e){
+        if(done) return;
+        done = true;
+        clearTimeout(timer);
+        no(e);
+      });
+  });
+}
+
+function getImg(url){
+  var start = Date.now();
+  console.log('[getImg] racing all sources for:', url);
+
+  // Race ALL sources simultaneously with timeouts
+  var attempts = [
+    tryImgDirect(url, 3000).then(function(img){
+      console.log('[getImg] DIRECT OK in '+(Date.now()-start)+'ms');
+      return img;
+    }).catch(function(e){ console.warn('[getImg] direct failed:', e.message); return null; }),
+
+    tryImgDirect(PX[0]+encodeURIComponent(url), 6000).then(function(img){
+      console.log('[getImg] PROXY0 (direct) OK in '+(Date.now()-start)+'ms');
+      return img;
+    }).catch(function(e){ console.warn('[getImg] proxy0 direct failed:', e.message); return null; }),
+
+    tryImgDirect(PX[1]+encodeURIComponent(url), 8000).then(function(img){
+      console.log('[getImg] PROXY1 (direct) OK in '+(Date.now()-start)+'ms');
+      return img;
+    }).catch(function(e){ console.warn('[getImg] proxy1 direct failed:', e.message); return null; }),
+
+    tryImgViaFetch(PX[0]+encodeURIComponent(url), 8000).then(function(img){
+      console.log('[getImg] PROXY0 (fetch) OK in '+(Date.now()-start)+'ms');
+      return img;
+    }).catch(function(e){ console.warn('[getImg] proxy0 fetch failed:', e.message); return null; }),
+
+    tryImgViaFetch(PX[1]+encodeURIComponent(url), 10000).then(function(img){
+      console.log('[getImg] PROXY1 (fetch) OK in '+(Date.now()-start)+'ms');
+      return img;
+    }).catch(function(e){ console.warn('[getImg] proxy1 fetch failed:', e.message); return null; })
+  ];
+
+  // First non-null wins
+  function raceFirst(list){
+    return Promise.all(list.map(function(p){
+      return p.catch(function(){ return null; });
+    })).then(function(results){
+      for(var i=0;i<results.length;i++){
+        if(results[i]) return results[i];
+      }
+      throw new Error('all sources failed');
+    });
+  }
+
+  // But also support fast-first: if any single one resolves early, take it
+  return new Promise(function(ok, no){
+    var resolved = false;
+    attempts.forEach(function(p){
+      p.then(function(img){
+        if(img && !resolved){
+          resolved = true;
+          console.log('[getImg] FIRST WINNER in '+(Date.now()-start)+'ms');
+          ok(img);
+        }
+      });
+    });
+    // Also wait for all to settle
+    Promise.all(attempts).then(function(results){
+      if(resolved) return;
+      for(var i=0;i<results.length;i++){
+        if(results[i]){
+          resolved = true;
+          console.log('[getImg] SETTLED WINNER in '+(Date.now()-start)+'ms');
+          ok(results[i]);
+          return;
+        }
+      }
+      no(new Error('all sources failed'));
+    });
+  });
+}
+
+function ldImg(url){
+  // getImg already returns a loaded Image, so just pass through
+  return Promise.resolve(url);
+}
+
+function App(){
+  var _ml=useState(false),mLoad=_ml[0],setMLoad=_ml[1];
+  var _me=useState(null),mErr=_me[0],setMErr=_me[1];
+  var _cs=useState([]),cams=_cs[0],setCams=_cs[1];
+  var _cl=useState(true),cLoad=_cl[0],setCLoad=_cl[1];
+  var _ce=useState(null),cErr=_ce[0],setCErr=_ce[1];
+  var _c=useState(null),cam=_c[0],setCam=_c[1];
+  var _q=useState(''),q=_q[0],setQ=_q[1];
+  var _reg=useState(''),reg=_reg[0],setReg=_reg[1];
+  var _r=useState({imgEl:null,dets:[],counts:{},total:0}),res=_r[0],setRes=_r[1];
+  var _st=useState('idle'),status=_st[0],setSt=_st[1];
+  var _au=useState(false),au=_au[0],setAu=_au[1];
+  var _iv=useState(15000),iv=_iv[0],setIv=_iv[1];
+  var _lt=useState(null),last=_lt[0],setLast=_lt[1];
+
+  var _ct=useState({}),counts=_ct[0],setCounts=_ct[1];
+  var _popup=useState(null),popup=_popup[0],setPopup=_popup[1];
+  var popupPos=useRef({x:0,y:0});
+  var mapWrapRef=useRef(null);
+  var _thumb=useState(null),thumbUrl=_thumb[0],setThumbUrl=_thumb[1];
+  var cRef=useRef(null),auRef=useRef(false),bsy=useRef(false),rdy=useRef(false);
+
+  useEffect(function(){
+    if (!popup || !res.imgEl || !cvRef.current) {
+      setThumbUrl(null);
+      return;
+    }
+    try {
+      var cv = cvRef.current;
+      if (!cv || cv.width === 0 || cv.height === 0) {
+        setThumbUrl(null);
+        return;
+      }
+      setThumbUrl(cv.toDataURL('image/jpeg', 0.85));
+    } catch(e) {
+      console.warn('[thumb] error generating thumbnail:', e);
+      setThumbUrl(null);
+    }
+  },[popup, res.imgEl, res.total, counts]);
+
+  // Color scale for vehicle count: gray=not scanned, green=low, yellow=medium, red=high
+  function countColor(count) {
+    if (count === undefined) return '#64748b'; // gray - not scanned
+    if (count === 0) return '#10b981';          // green - empty
+    if (count <= 5) return '#84cc16';           // light green
+    if (count <= 10) return '#eab308';          // yellow
+    if (count <= 20) return '#f97316';          // orange
+    return '#ef4444';                            // red - heavy traffic
+  }
+
+  // Update popup position as camera moves in 3D scene
+  useEffect(function(){
+    if(!cam || !myRef.current) return;
+    var viewer = myRef.current;
+    if(!viewer || viewer.isDestroyed()) return;
+
+    function update() {
+      if (!cam || !mxRef.current) return;
+      var cartesian = Cesium.Cartesian3.fromDegrees(cam.lng, cam.lat, 0);
+      var transform = Cesium.SceneTransforms.worldToWindowCoordinates || Cesium.SceneTransforms.wgs84ToWindowCoordinates;
+      var win = transform.call(Cesium.SceneTransforms, viewer.scene, cartesian);
+      if (win) {
+        popupPos.current = { x: win.x, y: win.y };
+      }
+    }
+    viewer.scene.preRender.addEventListener(update);
+    update();
+    return function(){
+      if (viewer && !viewer.isDestroyed()) {
+        viewer.scene.preRender.removeEventListener(update);
+      }
+    };
+  },[cam]);
+
+  // Force re-render when popup position changes (to keep popup in sync)
+  var _ppk=useState(0),ppkTick=_ppk[0],setPpkTick=_ppk[1];
+  useEffect(function(){
+    if(!cam) return;
+    var id = setInterval(function(){ setPpkTick(function(v){return v+1;}); }, 60);
+    return function(){ clearInterval(id); };
+  },[cam]);
+  var cvRef=useRef(null),tRef=useRef(null);
+  var mxRef=useRef(null),myRef=useRef(null),mkRef=useRef(null);
+  var cmRef=useRef({});
+  var abortRef=useRef(null);
+  var pinBuilderRef=useRef(null);
+
+  // Helper: regenerate the pin billboard with a traffic-colored body and the vehicle count as a label
+  // count=undefined means not yet scanned (shows "?" on gray pin)
+  function setPinState(entity, count, isHighlighted) {
+    if (!entity || !entity.billboard) return;
+    if (!pinBuilderRef.current) {
+      try { pinBuilderRef.current = new Cesium.PinBuilder(); } catch(e) { return; }
+    }
+    try {
+      var size = isHighlighted ? 60 : 54;
+      var pinCanvas;
+      var unscanned = (count === undefined || count === null);
+      if (unscanned) {
+        // Not yet scanned: plain gray pin, no text
+        pinCanvas = pinBuilderRef.current.fromColor(
+          Cesium.Color.fromCssColorString('#64748b'),
+          size
+        );
+      } else {
+        // Scanned: traffic color + count number (1-3 digits)
+        var col = countColor(count);
+        pinCanvas = pinBuilderRef.current.fromText(
+          count.toString(),
+          Cesium.Color.fromCssColorString(col),
+          size
+        );
+      }
+      entity.billboard.image = pinCanvas.toDataUrl ? pinCanvas : pinCanvas.toDataURL();
+      entity.billboard.scale = isHighlighted ? 0.75 : 0.6;
+      entity._count = count;
+    } catch(e){ console.warn('[pinState]', e); }
+  }
+  // Memory cache: decoded Image elements keyed by camera id. LRU-evict at 30.
+  var cacheRef=useRef(new Map());
+  var cacheKeysRef=useRef([]);
+  var inFlightRef=useRef(new Map()); // id -> Promise in progress (dedup)
+  var CACHE_MAX=30;
+
+  function cacheGet(id){
+    if(!cacheRef.current.has(id)) return null;
+    // bump to end (most recent)
+    cacheKeysRef.current = cacheKeysRef.current.filter(function(k){return k!==id;});
+    cacheKeysRef.current.push(id);
+    return cacheRef.current.get(id);
+  }
+  function cachePut(id, img){
+    if(!img) return;
+    cacheRef.current.set(id, img);
+    cacheKeysRef.current = cacheKeysRef.current.filter(function(k){return k!==id;});
+    cacheKeysRef.current.push(id);
+    while(cacheKeysRef.current.length > CACHE_MAX){
+      var evict = cacheKeysRef.current.shift();
+      cacheRef.current.delete(evict);
+    }
+  }
+
+  // Fetch + decode a snapshot into a usable Image, cached & dedup'd by camera id
+  function fetchImgFor(cam){
+    if(cacheRef.current.has(cam.id)) return Promise.resolve(cacheGet(cam.id));
+    if(inFlightRef.current.has(cam.id)) return inFlightRef.current.get(cam.id);
+    var p = getImg(cam.url).then(function(url){
+      return ldImg(url);
+    }).then(function(img){
+      cachePut(cam.id, img);
+      inFlightRef.current.delete(cam.id);
+      return img;
+    }).catch(function(e){
+      inFlightRef.current.delete(cam.id);
+      throw e;
+    });
+    inFlightRef.current.set(cam.id, p);
+    return p;
+  }
+
+  // Kick off a background fetch; ignore errors
+  function warmCam(cam){
+    if(!cam || cacheRef.current.has(cam.id) || inFlightRef.current.has(cam.id)) return;
+    fetchImgFor(cam).catch(function(){});
+  }
+
+  useEffect(function(){cRef.current=cam;},[cam]);
+  useEffect(function(){auRef.current=au;},[au]);
+
+  useEffect(function(){
+    setSt('loading-model');
+    loadMdl().then(function(){
+      rdy.current=true;
+      setMLoad(true);
+      setSt('ready');
+      console.log('Model ready - click a camera to start detection');
+    }).catch(function(e){
+      console.error('Model load error:', e);
+      setMErr(e.message);
+      setSt('model-error');
+    });
+  },[]);
+
+  useEffect(function(){
+    if(!mxRef.current)return;
+
+    // Cesium: disable Ion token dependency (HK 3D Tiles is external)
+    try { Cesium.Ion.defaultAccessToken = ''; } catch(e){}
+
+    var viewer = new Cesium.Viewer(mxRef.current, {
+      baseLayerPicker: false,
+      geocoder: false,
+      homeButton: false,
+      sceneModePicker: false,
+      navigationHelpButton: false,
+      animation: false,
+      timeline: false,
+      fullscreenButton: false,
+      selectionIndicator: false,
+      infoBox: false,
+      requestRenderMode: false,
+      shouldAnimate: false,
+      skyAtmosphere: undefined,
+      scene3DOnly: true,
+      imageryProvider: false
+    });
+
+    // Neutral globe color since no imagery basemap is used
+    viewer.scene.globe.enableLighting = false;
+    // Match globe base color to scene background so there is NO visible horizon line
+    viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString('#0f172a');
+    viewer.scene.globe.depthTestAgainstTerrain = false;
+    viewer.scene.globe.showGroundAtmosphere = false;
+    viewer.scene.skyBox = undefined;
+    viewer.scene.moon = undefined;
+    viewer.scene.sun = undefined;
+    viewer.scene.fog.enabled = false;
+    viewer.scene.backgroundColor = Cesium.Color.fromCssColorString('#0f172a');
+
+    // Start with camera close to Tsim Sha Tsui
+    viewer.camera.setView({
+      destination: Cesium.Cartesian3.fromDegrees(114.1717, 22.2919, 800),
+      orientation: {
+        heading: Cesium.Math.toRadians(180),
+        pitch: Cesium.Math.toRadians(-35),
+        roll: 0
+      }
+    });
+
+    // Load HK 3D Tiles tileset (3D buildings only, no basemap overlay)
+    Cesium.Cesium3DTileset.fromUrl(
+      'https://data.map.gov.hk/api/3d-data/3dtiles/f2/tileset.json?key=3967f8f365694e0798af3e7678509421'
+    ).then(function(tileset){
+      viewer.scene.primitives.add(tileset);
+      // Note: NOT calling viewer.zoomTo(tileset) so it doesn't override the TST initial view
+      console.log('3D Tiles loaded:', tileset.url);
+    }).catch(function(err){
+      console.error('3D Tiles load error:', err);
+    });
+
+    myRef.current = viewer;
+    setCLoad(true);
+
+    fetch('https://portal.csdi.gov.hk/server/rest/services/common/td_rcd_1638952287148_39267/FeatureServer/0/query?f=json&where=1%3D1&outFields=*&outSR=4326&resultRecordCount=1000')
+      .then(function(r){return r.json();})
+      .then(function(d){
+        var RC={'Hong Kong Island':'#3b82f6','Kowloon':'#ef4444','New Territories':'#22c55e'};
+        var list=[];
+        // Lazily initialize PinBuilder once, reused across all markers
+        if (!pinBuilderRef.current) {
+          try { pinBuilderRef.current = new Cesium.PinBuilder(); } catch(e){}
+        }
+        var pinBuilder = pinBuilderRef.current;
+        (d.features||[]).forEach(function(f){
+          var a=f.attributes,g=f.geometry;
+          if(!g||!g.x||!g.y)return;
+          var col=RC[a.region]||'#64748b';
+          var cd={id:a.OBJECTID,key:a.key_,region:a.region,district:a.district,description:a.description,url:a.url,color:col,lng:g.x,lat:g.y};
+          list.push(cd);
+
+          // Generate a location pin billboard using PinBuilder: plain gray = not yet scanned
+          var pinCanvas = pinBuilder.fromColor(
+            Cesium.Color.fromCssColorString('#64748b'),
+            54
+          );
+          var pt = viewer.entities.add({
+            name: a.description,
+            position: Cesium.Cartesian3.fromDegrees(g.x, g.y, 0),
+            billboard: {
+              image: pinCanvas.toDataUrl ? pinCanvas : pinCanvas.toDataURL(),
+              verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+              heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+              disableDepthTestDistance: Number.POSITIVE_INFINITY,
+              scale: 0.6
+            },
+            description: a.region + ' \u2014 ' + a.district,
+            _camId: a.OBJECTID,
+            _col: '#64748b'
+          });
+
+          cmRef.current[a.OBJECTID]={mk:pt,cd:cd};
+        });
+        setCams(list);setCLoad(false);
+      }).catch(function(e){console.error(e);setCErr('Failed: '+e.message);setCLoad(false);});
+
+    // Click handler: pick camera point
+    var handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+    handler.setInputAction(function(click){
+      var picked = viewer.scene.pick(click.position);
+      if(Cesium.defined(picked) && picked.id && picked.id._camId){
+        var rec = cmRef.current[picked.id._camId];
+        if(rec) pick(rec.cd);
+      }
+    }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
+    return function(){
+      if(handler){handler.destroy();}
+      if(myRef.current && !myRef.current.isDestroyed()){myRef.current.destroy();myRef.current=null;}
+    };
+  },[]);
+
+  function pick(cd){
+    try {
+      console.log('[pick] clicked camera:', cd.id, cd.description);
+      var rec=cmRef.current[cd.id];
+      // Reset previous selection - restore its count-based state
+      if(mkRef.current && mkRef.current !== (rec && rec.mk)){
+        try{
+          var prevCount = counts[mkRef.current._camId];
+          setPinState(mkRef.current, prevCount, false);
+        }catch(e){console.warn('[pick] reset error:',e);}
+      }
+      // Highlight new selection with a larger pin
+      if(rec && rec.mk){
+        try{
+          setPinState(rec.mk, counts[cd.id], true);
+          mkRef.current=rec.mk;
+        }catch(e){console.warn('[pick] highlight error:',e);}
+      }
+      // Fly camera to the selected camera position - zoom in and view from above the pin
+      if(myRef.current && !myRef.current.isDestroyed()){
+        myRef.current.camera.flyTo({
+          destination: Cesium.Cartesian3.fromDegrees(cd.lng, cd.lat, 250),
+          orientation: {
+            heading: Cesium.Math.toRadians(0),
+            pitch: Cesium.Math.toRadians(-80),
+            roll: 0
+          },
+          duration: 1.8,
+          maximumHeight: Math.max(myRef.current.camera.positionCartographic.height * 0.6, 300)
+        });
+      }
+      setCam(cd);
+      setPopup(cd);
+    } catch(err) {
+      console.error('[pick] fatal error:', err);
+    }
+  }
+
+  function pickById(id){var rec=cmRef.current[id];if(rec)pick(rec.cd);}
+
+  // Reset to home view: TST initial camera + clear search/selection
+  function goHome(){
+    try{
+      // Reset highlighted pin back to its traffic-color state
+      if(mkRef.current){
+        try{
+          var prevCount = counts[mkRef.current._camId];
+          setPinState(mkRef.current, prevCount, false);
+        }catch(e){}
+        mkRef.current = null;
+      }
+      // Cancel any in-flight detection
+      if(abortRef.current){ try{abortRef.current.abort();}catch(e){} }
+      // Clear camera selection, popup, search, and region filter
+      setCam(null);
+      setPopup(null);
+      setQ('');
+      setReg('');
+      // Fly map back to TST initial view
+      if(myRef.current && !myRef.current.isDestroyed()){
+        myRef.current.camera.flyTo({
+          destination: Cesium.Cartesian3.fromDegrees(114.1717, 22.2919, 800),
+          orientation: {
+            heading: Cesium.Math.toRadians(180),
+            pitch: Cesium.Math.toRadians(-35),
+            roll: 0
+          },
+          duration: 1.8
+        });
+      }
+    }catch(err){console.error('[goHome] error:',err);}
+  }
+
+  function drawImgToCanvas(img){
+    var cv=cvRef.current;
+    if(!cv || !img) return;
+    cv.width=960;cv.height=600;
+    var ctx=cv.getContext('2d');
+    ctx.drawImage(img,0,0,960,600);
+  }
+
+  function startPrefetch(camera){
+    if(!camera) return;
+    fetchImgFor(camera).catch(function(){});
+  }
+
+  // Detect + draw boxes on the given image (mutates canvas)
+  function detectAndShow(img, ctrl){
+    drawImgToCanvas(img);
+    setSt('detecting');
+    return doDetect(img).then(function(result){
+      if (ctrl.signal.aborted) return;
+      var cv=cvRef.current;
+      if(cv){
+        var ctx=cv.getContext('2d');
+        ctx.drawImage(img,0,0,960,600);
+        if(typeof drawBx==='function' && result.dets){
+          drawBx(ctx,result.dets,960,600,img.naturalWidth||img.width,img.naturalHeight||img.height);
+        }
+      }
+      setRes(result);
+      setSt('idle');
+      // Update count + camera point color
+      if (cRef.current) {
+        setCounts(function(prev){ return Object.assign({}, prev, {[cRef.current.id]: result.total}); });
+        var rec = cmRef.current[cRef.current.id];
+        if (rec && rec.mk) {
+          // Keep it highlighted if it's still the selected one
+          var isSelected = mkRef.current === rec.mk;
+          setPinState(rec.mk, result.total, isSelected);
+        }
+      }
+      console.log('Detected ' + result.total + ' objects');
+    });
+  }
+
+  function run(ca) {
+    if (!rdy.current) { console.warn('Model not ready yet'); return; }
+
+    var cam = ca || cRef.current;
+    if (!cam || bsy.current) return;
+
+    if (abortRef.current) { try { abortRef.current.abort(); } catch(e){} }
+    var ctrl = new AbortController();
+    abortRef.current = ctrl;
+
+    bsy.current = true;
+    ctrl.signal.addEventListener('abort', function(){ bsy.current = false; });
+
+    var cached = cacheGet(cam.id);
+
+    // Path A: cached snapshot available → show + detect instantly, fresh in background
+    if (cached && !ctrl.signal.aborted) {
+      console.log('[run] cached hit, showing instantly');
+      detectAndShow(cached, ctrl).catch(function(e){
+        if(e && e.name==='AbortError') return;
+        console.error('[run] cached detect failed:', e);
+      });
+      // In parallel, fetch fresh snapshot; if it arrives, re-run detect on it
+      fetchImgFor(cam).then(function(freshImg){
+        if (ctrl.signal.aborted || !freshImg) return;
+        console.log('[run] fresh arrived, updating detection');
+        return detectAndShow(freshImg, ctrl);
+      }).catch(function(e){
+        console.warn('[run] fresh fetch failed, keeping cached result:', e.message);
+      }).finally(function(){
+        if (!ctrl.signal.aborted) bsy.current = false;
+        if (auRef.current) startPrefetch(cam);
+      });
+      return;
+    }
+
+    // Path B: no cached version → fetch + detect on fresh arrival
+    setSt('loading-image');
+    fetchImgFor(cam)
+      .then(function(img){
+        if (ctrl.signal.aborted || !img) return;
+        return detectAndShow(img, ctrl);
+      })
+      .catch(function(err) {
+        if (err && err.name === 'AbortError') return;
+        console.error('run error:', err);
+        setSt('image-error');
+      })
+      .finally(function(){
+        bsy.current = false;
+        if (auRef.current) startPrefetch(cam);
+      });
+  }
+
+  useEffect(function(){if(cam)run(cam);},[cam]);
+  useEffect(function(){
+    if(tRef.current){clearInterval(tRef.current);tRef.current=null;}
+    if(au&&cam){tRef.current=setInterval(function(){if(auRef.current&&!bsy.current)run();},iv);}
+    return function(){if(tRef.current)clearInterval(tRef.current);};
+  },[au,iv,cam]);
+
+  var fc=useMemo(function(){
+    var s=q.trim().toLowerCase();
+    return cams.filter(function(c){
+      if(reg&&(c.region||'')!==reg)return false;
+      if(!s)return true;
+      return(c.description||'').toLowerCase().indexOf(s)!==-1||(c.key||'').toLowerCase().indexOf(s)!==-1||(c.district||'').toLowerCase().indexOf(s)!==-1;
+    });
+  },[cams,q,reg]);
+
+  var SM={'idle':['Ready','sidle'],'ready':['Model ready - select a camera','sidle'],'loading-model':['Loading YOLOS-tiny model\u2026','swrk'],'loading-image':['Fetching snapshot\u2026','swrk'],'detecting':['Running detection\u2026','swrk'],'detected':['Done','sidle'],'model-error':['Model load failed','serr'],'image-error':['Image failed','serr'],'detection-error':['Detection failed','serr'],'fetch-error':['Fetch failed','serr']};
+  var si=SM[status]||[status,'sidle'];
+  var working=status==='loading-model'||status==='loading-image'||status==='detecting';
+
+  var regs=[{n:'All',v:''},{n:'HK Island',v:'Hong Kong Island'},{n:'Kowloon',v:'Kowloon'},{n:'N.T.',v:'New Territories'}];
+  var leg=[{n:'HK Island',c:'#3b82f6'},{n:'Kowloon',c:'#ef4444'},{n:'N.T.',c:'#22c55e'}];
+
+  return h('div',{className:'app'},
+    h('div',{className:'header'},
+      h('div',{className:'header-logo'},'\u{1F697}'),
+      h('div',{style:{minWidth:0}},
+        h('div',{className:'header-title'},'Hong Kong Traffic and Vehicle Detection'),
+        h('div',{className:'header-sub'},'AI-powered \u00b7 995 cameras \u00b7 Real-time')
+      ),
+      h('button',{className:'home-btn',onClick:goHome,title:'Return to home view and clear search'},
+        h('svg',{viewBox:'0 0 24 24'},
+          h('path',{d:'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6'}),
+        ),
+        'Home'
+      ),
+      h('div',{className:'model-badge '+(mErr?'model-error':(mLoad?'model-ready':'model-loading'))},
+        h('span',{className:'dot'+(!mLoad&&!mErr?' pulse':'')}),
+        mErr?'Model Error':(mLoad?'Model Ready':'Loading Model\u2026')
+      )
+    ),
+
+    h('div',{className:'main'},
+        h('div',{className:'map-wrap',ref:mapWrapRef},
+        h('div',{className:'map-head'},
+          h('div',{className:'map-title'},'Traffic Cameras'),
+          h('div',{className:'legend'},
+            leg.map(function(l){return h('div',{className:'leg-i',key:l.n},h('span',{className:'leg-dot',style:{background:l.c}}),l.n);})
+          ),
+          h('div',{style:{display:'flex',gap:6,alignItems:'center',borderLeft:'1px solid #334155',paddingLeft:10,fontSize:10,color:'#94a3b8'}},
+            h('span',{style:{fontWeight:600,color:'#cbd5e1'}},'Traffic:'),
+            h('span',{style:{display:'flex',alignItems:'center',gap:3}},h('span',{className:'leg-dot',style:{background:'#64748b'}}),'n/a'),
+            h('span',{style:{display:'flex',alignItems:'center',gap:3}},h('span',{className:'leg-dot',style:{background:'#10b981'}}),'0'),
+            h('span',{style:{display:'flex',alignItems:'center',gap:3}},h('span',{className:'leg-dot',style:{background:'#84cc16'}}),'1-5'),
+            h('span',{style:{display:'flex',alignItems:'center',gap:3}},h('span',{className:'leg-dot',style:{background:'#eab308'}}),'6-10'),
+            h('span',{style:{display:'flex',alignItems:'center',gap:3}},h('span',{className:'leg-dot',style:{background:'#f97316'}}),'11-20'),
+            h('span',{style:{display:'flex',alignItems:'center',gap:3}},h('span',{className:'leg-dot',style:{background:'#ef4444'}}),'20+')
+          )
+        ),
+        h('div',{id:'cesiumContainer',ref:mxRef}),
+        // Popup overlay - only render if all required refs exist
+        popup && myRef.current && !myRef.current.isDestroyed() && mapWrapRef.current && (function(){
+          try {
+            var transform = Cesium.SceneTransforms.worldToWindowCoordinates || Cesium.SceneTransforms.wgs84ToWindowCoordinates;
+            var winCoord = transform.call(Cesium.SceneTransforms,
+              myRef.current.scene,
+              Cesium.Cartesian3.fromDegrees(popup.lng, popup.lat, 0)
+            );
+            
+            if (!winCoord || !isFinite(winCoord.x) || !isFinite(winCoord.y)) {
+              console.warn('[popup] invalid window coordinates:', winCoord);
+              return null;
+            }
+            
+            var localX = winCoord.x;
+            var localY = winCoord.y;
+            var rect = mapWrapRef.current.getBoundingClientRect();
+            localX -= rect.left;
+            localY -= rect.top;
+            
+            // Ensure coordinates are within bounds before flipping
+            if (!isFinite(localX) || !isFinite(localY)) {
+              localX = 100;
+              localY = 300;
+            }
+            
+            var popupW = 260, popupH = 350;
+            var wrapW = rect.width || 600;
+            var wrapH = rect.height || 700;
+            
+            // Smart positioning
+            if (localX + 15 + popupW > wrapW) localX = Math.max(10, localX - 15 - popupW);
+            localY = Math.max(50, Math.min(localY - popupH/2, wrapH - popupH - 10));
+            
+            return h('div',{
+              className: 'cam-popup',
+              style: {
+                left: localX + 'px',
+                top: localY + 'px',
+                width: popupW + 'px'
+              }
+            },
+              // Popup header
+              h('div', {className: 'cam-popup-header', style: {
+                padding: '8px 12px',
+                background: 'linear-gradient(90deg, #0f172a, #1e293b)',
+                borderBottom: '1px solid #334155',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between'
+              }},
+                h('span', {style: {fontWeight: 600, color: '#e2e8f0', fontSize: '13px', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginRight: '8px'}}, 
+                  popup.description || ('Camera ' + popup.id)
+                ),
+                h('button', {
+                  onClick: function(){ setPopup(null); setCam(null); },
+                  style: {
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#94a3b8',
+                    fontSize: '20px',
+                    cursor: 'pointer',
+                    padding: '0 4px',
+                    lineHeight: '1'
+                  },
+                  title: 'Close'
+                }, '×')
+              ),
+              
+              // Info section
+              h('div', {style: {padding: '8px 12px'}},
+                // Region/district
+                h('div', {style: {fontSize: '11px', color: '#94a3b8', marginBottom: '8px'}},
+                  popup.region + ' · ' + popup.district
+                ),
+                
+                // Total count
+                h('div', {style: {
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  marginBottom: '8px',
+                  padding: '8px',
+                  background: '#1e293b',
+                  borderRadius: '6px'
+                }},
+                  h('div', {style: {
+                    fontSize: '28px',
+                    fontWeight: 700,
+                    color: countColor(counts[popup.id])
+                  }}, counts[popup.id] !== undefined ? counts[popup.id] : '—'),
+                  h('div', {style: {fontSize: '12px', color: '#cbd5e1'}}, 'vehicles')
+                ),
+                
+                // Vehicle breakdown chips
+                res.counts && Object.keys(res.counts).length > 0 && popup.id === (cam && cam.id) && (
+                  h('div', {style: {display: 'flex', flexWrap: 'wrap', gap: '4px'}},
+                    Object.keys(res.counts).map(function(type){
+                      return h('span', {
+                        key: type,
+                        style: {
+                          background: '#334155',
+                          color: '#d1d5db',
+                          padding: '3px 8px',
+                          borderRadius: '10px',
+                          fontSize: '10px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px'
+                        }
+                      },
+                        VEH_LABELS[type] || type,
+                        ': ',
+                        res.counts[type]
+                      );
+                    })
+                  )
+                )
+              )
+            );
+          } catch(err) {
+            console.error('[popup] render error:', err);
+            return null;
+          }
+        })()
+      ),
+
+      h('div',{className:'side'+(cam?' hascam':'')},
+        // Snapshot at the very top when a camera is selected
+        cam&&h('div',{className:'snapshot-top'},
+          h('button',{className:'bkbtn',onClick:function(){setCam(null);}},'\u2190 Back to list'),
+          h('div',{className:'snapshot-hd'},
+            h('div',{className:'snapshot-title'},
+              h('span',{style:{width:9,height:9,borderRadius:'50%',background:cam.color,display:'inline-block'}},null),
+              cam.description||cam.key
+            ),
+            h('div',{className:'snapshot-sub'},cam.region+' \u00b7 '+cam.district+' \u00b7 '+cam.key)
+          ),
+          h('div',{className:'cv-top'},
+            h('canvas',{ref:cvRef}),
+            working&&h('div',{className:'cvo'},h('div',{className:'sp'}),status==='loading-image'?'Fetching snapshot\u2026':'Detecting vehicles\u2026')
+          )
+        ),
+
+        (function(){
+          var camIds = Object.keys(counts);
+          var totalV = 0;
+          camIds.forEach(function(id){ totalV += counts[id] || 0; });
+          var nCams = camIds.length;
+          var avg = nCams > 0 ? (totalV / nCams).toFixed(1) : '0';
+          var green = 0, yellow = 0, orange = 0, red = 0;
+          camIds.forEach(function(id){
+            var c = counts[id];
+            if (c === undefined) return;
+            if (c <= 5) green++;
+            else if (c <= 10) yellow++;
+            else if (c <= 20) orange++;
+            else red++;
+          });
+          return h('div',{className:'stats-bar'},
+            h('div',{className:'stats-item'},h('div',{className:'stats-num'},totalV),h('div',{className:'stats-label'},'Vehicles')),
+            h('div',{className:'stats-divider'}),
+            h('div',{className:'stats-item'},h('div',{className:'stats-num'},nCams),h('div',{className:'stats-label'},'Scanned')),
+            h('div',{className:'stats-divider'}),
+            h('div',{className:'stats-item'},h('div',{className:'stats-num'},avg),h('div',{className:'stats-label'},'Avg/Cam')),
+            h('div',{className:'stats-divider'}),
+            h('div',{className:'stats-item'},h('div',{style:{display:'flex',flexDirection:'column',alignItems:'stretch',gap:'3px'}},
+              h('div',{style:{display:'flex',alignItems:'center',gap:'4px',fontSize:'10px',color:'#94a3b8'}},h('span',{style:{width:'7px',height:'7px',borderRadius:'50%',background:'#10b981'}}), green, ' low'),
+              h('div',{style:{display:'flex',alignItems:'center',gap:'4px',fontSize:'10px',color:'#94a3b8'}},h('span',{style:{width:'7px',height:'7px',borderRadius:'50%',background:'#eab308'}}), yellow, ' mod'),
+              h('div',{style:{display:'flex',alignItems:'center',gap:'4px',fontSize:'10px',color:'#94a3b8'}},h('span',{style:{width:'7px',height:'7px',borderRadius:'50%',background:'#f97316'}}), orange, ' busy'),
+              h('div',{style:{display:'flex',alignItems:'center',gap:'4px',fontSize:'10px',color:'#94a3b8'}},h('span',{style:{width:'7px',height:'7px',borderRadius:'50%',background:'#ef4444'}}), red, ' high')
+            ))
+          );
+        })(),
+        // Search at TOP only when no camera is selected
+        !cam&&h('div',{className:'search'},
+          h('input',{className:'s-inp',placeholder:'Search cameras or locations\u2026',value:q,onChange:function(e){setQ(e.target.value);}}),
+          h('div',{className:'fbtns'},
+            regs.map(function(r){return h('button',{key:r.v,className:'fbtn'+(reg===r.v?' on':''),onClick:function(){setReg(r.v);}},r.n);})
+          ),
+          h('div',{className:'cnt'},cLoad?'Loading cameras\u2026':(fc.length+' of '+cams.length+' cameras'))
+        ),
+
+        !cam&&h('div',{className:'clist'},
+          cLoad?h('div',{style:{padding:30,textAlign:1,color:'#64748b'}},'Loading 995 cameras\u2026'):
+          cErr?h('div',{style:{padding:20,textAlign:'center',color:'#64748b'}},cErr,h('br'),h('button',{className:'btn bp',style:{marginTop:6},onClick:function(){location.reload();}},'Retry')):
+          fc.length===0?h('div',{style:{padding:30,textAlign:'center',color:'#64748b'}},'No cameras found'):
+          fc.map(function(c){return h('div',{key:c.id,className:'ci'+(cam&&cam.id===c.id?' sel':''),onClick:function(){pickById(c.id);},onMouseEnter:function(){warmCam(c);},onTouchStart:function(){warmCam(c);}},h('span',{className:'cd',style:{background:c.color}}),h('div',{className:'cinf'},h('div',{className:'cn'},c.description||c.key),h('div',{className:'cl'},c.region+' \u00b7 '+c.district)));})
+        ),
+
+        cam&&h('div',{className:'det'},
+          h('div',{className:'tcard'},
+            h('div',null,h('div',{className:'tlbl'},'Vehicles Detected'),h('div',{className:'tnum'},res.total||0)),
+            h('div',{className:'tico'},'\u{1F699}')
+          ),
+
+          Object.keys(res.counts||{}).length>0&&h('div',null,
+            h('div',{className:'sec'},'Breakdown by Type'),
+            h('div',{className:'chips'},
+              Object.keys(res.counts).sort(function(a,b){return res.counts[b]-res.counts[a];}).map(function(k){
+                var col=VC[Object.keys(VEH_LABELS).find(function(x){return VEH_LABELS[x]===k;})]||'#94a3b8';
+                return h('div',{key:k,className:'chip'},h('span',{className:'cdot',style:{background:col}}),h('span',{className:'clab'},k),h('span',{className:'cnum'},res.counts[k]));
+              })
+            ),
+            res.total>0&&h('div',{className:'sbar'},
+              Object.keys(res.counts).map(function(k){
+                var col=VC[Object.keys(VEH_LABELS).find(function(x){return VEH_LABELS[x]===k;})]||'#94a3b8';
+                return h('div',{key:k,style:{background:col,width:(res.counts[k]/res.total*100)+'%'}});
+              })
+            )
+          ),
+
+          !rdy.current&&h('div',{className:'warn'},'\u26A0 AI model loading. Detection will start when ready.'),
+
+          h('div',{className:'sec'},'Controls'),
+          h('div',{className:'ctrl'},
+            h('button',{className:'btn bp',onClick:function(){run();},disabled:!rdy.current||bsy.current},'\u{1F504} Refresh'),
+            h('button',{className:'btn '+(au?'bg':'bgr'),onClick:function(){setAu(function(v){return !v;});}},au?'\u23F8 Stop':'\u25B6 Auto'),
+            au&&h('select',{className:'iv',value:iv,onChange:function(e){setIv(+e.target.value);}},
+              h('option',{value:10000},'10s'),h('option',{value:15000},'15s'),h('option',{value:30000},'30s'),h('option',{value:60000},'60s')
+            )
+          ),
+
+          h('div',{className:'st '+(si[1]||'sidle')},
+            h('span',{className:'stdot'+(working?' pulse':'')}),
+            h('span',{className:'sttxt'},si[0]),
+            last&&h('span',{className:'sttm'},last)
+          ),
+
+          // Search at BOTTOM of detection panel
+          h('div',{className:'search search-bottom'},
+            h('div',{className:'sec'},'Find Another Camera'),
+            h('input',{className:'s-inp',placeholder:'Search cameras or locations\u2026',value:q,onChange:function(e){setQ(e.target.value);}}),
+            h('div',{className:'fbtns'},
+              regs.map(function(r){return h('button',{key:r.v,className:'fbtn'+(reg===r.v?' on':''),onClick:function(){setReg(r.v);}},r.n);})
+            ),
+            h('div',{className:'cnt'},cLoad?'Loading cameras\u2026':(fc.length+' of '+cams.length+' cameras'))
+          ),
+
+          h('div',{className:'clist-mini'},
+            cLoad?null:
+            fc.length===0?h('div',{style:{padding:15,textAlign:'center',color:'#64748b'}},'No cameras found'):
+            fc.map(function(c){return h('div',{key:c.id,className:'ci'+(cam&&cam.id===c.id?' sel':''),onClick:function(){pickById(c.id);},onMouseEnter:function(){warmCam(c);},onTouchStart:function(){warmCam(c);}},h('span',{className:'cd',style:{background:c.color}}),h('div',{className:'cinf'},h('div',{className:'cn'},c.description||c.key),h('div',{className:'cl'},c.region+' \u00b7 '+c.district)));})
+          )
+        ),
+
+        !cam&&!cLoad&&h('div',{className:'empty'},
+          h('div',{className:'eico'},'\u{1F6F0}\uFE0F'),
+          h('div',{className:'etit'},'Select a Traffic Camera'),
+          h('div',{className:'esub'},'Pick any camera to see live AI vehicle detection with bounding boxes.'),
+          h('div',{className:'steps'},
+            h('div',null,h('span',{className:'sn'},'1'),'Click a dot on the map'),
+            h('div',null,h('span',{className:'sn'},'2'),'Or select from the list'),
+            h('div',null,h('span',{className:'sn'},'3'),'Turn on Auto for live updates')
+          )
+        )
+      )
+    )
+  );
+}
+
+if(document.readyState==='loading'){
+  document.addEventListener('DOMContentLoaded',function(){ReactDOM.createRoot(document.getElementById('root')).render(h(App));});
+}else{
+  ReactDOM.createRoot(document.getElementById('root')).render(h(App));
+}
+})();
+</script>
+</body>
+</html>
